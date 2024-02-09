@@ -6,7 +6,7 @@ pub struct ResponseEncodingErr {
     pub message : String 
 }
 
-#[derive(Debug)]
+#[derive(Debug,Clone)]
 pub struct Request {
    pub method : String,
    pub version : String,
@@ -14,6 +14,9 @@ pub struct Request {
    pub headers : HashMap<String , String>,
    pub body : String
 }
+
+
+
 
 #[derive(Debug)]
 pub struct Response {
@@ -80,7 +83,8 @@ pub fn response_string(response : &Response) -> Result<String, ResponseEncodingE
         let mut header_str = format!("\r\n{}:{}", k.to_string(), v.to_string());
         resp_str.push_str(&header_str);
     }
-    if let Some(resp_body ) =  response.body.as_deref() {
+    if let Some(resp_body ) =  response.body.as_deref(){
+
         let body_str = format!("\r\n\r\n{}", resp_body.to_string());
         resp_str.push_str(&body_str);
     }

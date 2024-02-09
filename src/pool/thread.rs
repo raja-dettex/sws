@@ -1,4 +1,4 @@
-use std::{sync::{mpsc, Arc, Mutex}, thread::{self, JoinHandle}};
+use std::{net::TcpStream, sync::{mpsc, Arc, Mutex}, thread::{self, JoinHandle}};
 
 pub struct Worker { 
     id : usize,
@@ -38,11 +38,12 @@ impl ThreadPool {
         }
         ThreadPool{workers, sender}
     }
-    pub fn execute<F>(&self, f:F)
+    pub fn execute<F, Args>(&self, f:F, args: Args) 
     where
-        F : FnOnce() + Send + 'static
+        F : FnOnce(Args) + Send + 'static,
+        Args : Send + 'static
     {
-        let job = Box::new(f);
+        let job = Box::new(move || f(args) );
         self.sender.send(job).unwrap();
     }
 }

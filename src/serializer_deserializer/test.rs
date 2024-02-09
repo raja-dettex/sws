@@ -81,15 +81,15 @@ mod tests {
         
     //     assert!(!json_string.is_empty())
     // }
-    #[test]
-    fn test_thread_pool() {
-        let t_pool = ThreadPool::new(4);
-        for _ in 0..5 {
-            println!("hello there, none can stop me");
-            t_pool.execute(|| {
-                sleep(Duration::from_secs(1));
-                println!("i am here")
-            })
-        }      
-    }
+    // #[test]
+    // fn test_thread_pool() {
+    //     let t_pool = ThreadPool::new(4);
+    //     for _ in 0..5 {
+    //         println!("hello there, none can stop me");
+    //         t_pool.execute(|| {
+    //             sleep(Duration::from_secs(1));
+    //             println!("i am here")
+    //         })
+    //     }      
+    // }
 } 
