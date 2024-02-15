@@ -26,14 +26,14 @@ pub type boxedAnyType = Box<dyn Any + Send>;
 pub struct StringController {
     pub path: String,
     pub method: String,
-    pub req_handler: Arc<Mutex<Box<dyn Fn() -> Result<String, ControllerError> + Send>>>,
+    pub req_handler: Arc<Mutex<Box<dyn Fn() -> Result<ControllerResult, ControllerError> + Send>>>,
     pub handler: Arc<Mutex<Box<dyn Fn(Arc<Mutex<TcpStream>>, Arc<Mutex<String>>) + Send>>>,
 }
 
 pub struct IntController {
     pub path: String,
     pub method: String,
-    pub req_handler: Arc<Mutex<Box<dyn Fn() -> Result<i32, ControllerError> + Send>>>,
+    pub req_handler: Arc<Mutex<Box<dyn Fn() -> Result<ControllerResult, ControllerError> + Send>>>,
     pub handler: Arc<Mutex<Box<dyn Fn(Arc<Mutex<TcpStream>>, Arc<Mutex<i32>>) + Send>>>,
 }
 pub struct CustomController {
@@ -50,7 +50,7 @@ pub struct CustomPostController {
 }
 
 impl Controller {
-    pub fn new_string_controller(path: String, method: String, req_handler: Box<dyn Fn() -> Result<String, ControllerError> + Send>, handler: StringHandlerClosure) -> Self {
+    pub fn new_string_controller(path: String, method: String, req_handler: Box<dyn Fn() -> Result<ControllerResult, ControllerError> + Send>, handler: StringHandlerClosure) -> Self {
         Controller::StringController(StringController {
             path,
             method,
@@ -59,7 +59,7 @@ impl Controller {
         })
     }
 
-    pub fn new_int_controller(path: String, method: String, req_handler: Box<dyn Fn() -> Result<i32, ControllerError> + Send>, handler: IntHandlerClosure) -> Self {
+    pub fn new_int_controller(path: String, method: String, req_handler: Box<dyn Fn() -> Result<ControllerResult, ControllerError> + Send>, handler: IntHandlerClosure) -> Self {
         Controller::IntController(IntController {
             path,
             method,

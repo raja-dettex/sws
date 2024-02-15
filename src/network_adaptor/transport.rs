@@ -87,13 +87,18 @@ impl Listener {
                                 if request.path == co.path && request.method == co.method {
                                     let handler_func = co.handler.clone();
                                     //let req_handler_clone: Arc<Mutex<Box<dyn FnOnce() -> Result<String, controller::ControllerError> + Send>>> = Arc::clone(&co.req_handler);
-                                    let req_handler_clone: Arc<Mutex<Box<dyn Fn() -> Result<String, controller::ControllerError> + Send + 'static>>> = Arc::clone(&co.req_handler);
+                                    let req_handler_clone: Arc<Mutex<Box<dyn Fn() -> Result<ControllerResult, controller::ControllerError> + Send + 'static>>> = Arc::clone(&co.req_handler);
                                     let handler = req_handler_clone.lock().unwrap();
                                     let result = handler();
                                     let handler_f = handler_func.lock().unwrap();
                                     match result {
                                         Ok(res) =>  {
-                                            handler_f(tcpStream.clone(), Arc::new(Mutex::new(res)))
+                                            match res {
+                                                ControllerResult::StringResult(result) => handler_f(tcpStream.clone(), Arc::new(Mutex::new(result))),
+                                                ControllerResult::IntResult(_) => todo!(),
+                                                ControllerResult::AnyResult(_) => todo!(),
+                                            }
+                                            
                                         },
                                         Err(e) => println!("error : {:#?}", e)
                                     }
@@ -106,7 +111,31 @@ impl Listener {
                                 }
                             },
                             controller::Controller::IntController(co) => {
-            
+                                if request.path == co.path && request.method == co.method {
+                                    let handler_func = co.handler.clone();
+                                    //let req_handler_clone: Arc<Mutex<Box<dyn FnOnce() -> Result<String, controller::ControllerError> + Send>>> = Arc::clone(&co.req_handler);
+                                    let req_handler_clone: Arc<Mutex<Box<dyn Fn() -> Result<ControllerResult, controller::ControllerError> + Send + 'static>>> = Arc::clone(&co.req_handler);
+                                    let handler = req_handler_clone.lock().unwrap();
+                                    let result = handler();
+                                    let handler_f = handler_func.lock().unwrap();
+                                    match result {
+                                        Ok(res) =>  {
+                                            match res {
+                                                ControllerResult::StringResult(_) => todo!(),
+                                                ControllerResult::IntResult(result) => handler_f(tcpStream.clone(), Arc::new(Mutex::new(result))),
+                                                ControllerResult::AnyResult(_) => todo!(),
+                                            }
+                                            
+                                        },
+                                        Err(e) => println!("error : {:#?}", e)
+                                    }
+                                    
+
+                                    
+                                    //let stream = tcp_stream_clone.lock().unwrap();
+                                    
+                                    
+                                }
                             },
                             controller::Controller::CustomController(co) => {
                                 if request.path == co.path && request.method == co.method {
@@ -138,7 +167,6 @@ impl Listener {
                                 }
                             },
                             controller::Controller::CustomPostController(co) => {
-                                println!("panicking");
                                 if request.path == co.path && request.method == co.method {
                                     let handler_func = co.handler.clone();
                                     //let req_handler_clone: Arc<Mutex<Box<dyn FnOnce() -> Result<String, controller::ControllerError> + Send>>> = Arc::clone(&co.req_handler);
