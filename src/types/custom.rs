@@ -1,4 +1,7 @@
+use serde::{Deserialize, Serialize};
+
+#[derive(Debug, Serialize, Deserialize, Clone)]
 pub struct Sample {
-    id: u32,
-    name: String
+    pub id: u32,
+    pub name: String
 }

@@ -1,9 +1,11 @@
-mod serializer_deserializer;
+
 mod parser;
 mod pool;
 mod network_adaptor;
 mod middlewares;
 pub mod types;
+pub mod http;
+mod storage;
 
 use std::any::Any;
 use std::collections::HashMap;
@@ -17,156 +19,172 @@ use middlewares::init::Initializer;
 use middlewares::routing::Router;
 use serde::{Serialize, Deserialize};
 use serde_json::from_str as deserialize;
-use serializer_deserializer::lib::{serialize_json, deserialize_json};
+use storage::store::Store;
+use types::custom::Sample;
 
 use crate::network_adaptor::transport::TcpTransport;
 use crate::parser::http::{response_string, Request, Response, parse};
 use crate::pool::thread::ThreadPool;
-use crate::serializer_deserializer::lib::json_value;
 use std::{thread::sleep, time::Duration};
 use regex::Regex;
-
+use crate::http::server::{ServerOpts, Server};
 
 #[derive(Debug, Deserialize, Serialize)]
-struct Sample {
-    id : i32,
-    name: String,
+pub struct CustomError {
+    msg : String
+}
+#[derive(Clone)]
+pub struct MemoryStore { 
+    data : HashMap<String , Sample>
 }
 
-fn main() { 
-    let mut controllers = Vec::new();
-        
-        let req_handler : Box<dyn Fn() -> Result<Box<dyn Any + Send>, ControllerError> + Send> = Box::new(|| Ok(Box::new("Hello special") as Box<dyn Any + Send>));
-        let handler:Box<dyn Fn(Arc<Mutex<TcpStream>>, Arc<Mutex<Box<dyn Any + Send>>>) + Send> = Box::new(move |arc_stream, result| {
-            println!("controller works , {}", 5);
-            let mut stream = arc_stream.lock().unwrap();
-            let res = result.lock().unwrap();
-            let res_str = res.downcast_ref::<&str>().unwrap().to_string();
+impl MemoryStore {
+    pub fn new() -> Arc<Mutex<Self>> {
+        Arc::new(Mutex::new(MemoryStore{data: HashMap::new()}))
+    }
+}
 
-            let mut headers = HashMap::new();
-            headers.insert("Content-Type".to_string(), "text/plain".to_string());
-            let response = Response::new("HTTP/1.1".to_string(), 200, "OK".to_string(), Some(res_str), headers);
-            let response_str = response_string(&response);
-            match response_str {
-                Ok(str) => {
-                    stream.write(str.as_bytes()).unwrap();
-                    stream.flush().unwrap();
-                }, 
-                Err(e) => {
-                    println!("error {:#?}", e)
+impl Store<Sample> for MemoryStore {
+    fn getAll(&self) -> Vec<Sample> {
+        let mut values = Vec::new();
+        for (k, v) in self.data.clone() {
+            values.push(v);
+        }
+        values
+    }
+
+    fn get(&self, key : String) -> Option<Sample> {
+        let val = self.data.get(&key);
+        match val {
+            Some(r) => {
+                let data = r.to_owned();
+                Some(data)
+            }
+            None => None
+        }
+    }
+
+    fn add(&mut self, key: String, val : Sample) -> Option<Sample> {
+        let added = self.data.insert(key.clone(), val);
+    // Return the added value, even if the key already existed
+        added.or_else(|| self.data.get(&key).cloned())
+    }
+
+    fn update(&mut self, key: String, val : Sample) -> Option<Sample> {
+        self.data.insert(key, val)
+
+    }
+    fn delete(&mut self, key: String) -> Option<Sample> {
+        self.data.remove(&key)
+    }
+}
+fn main() { 
+        let m_store = MemoryStore::new();
+       
+        let opts = ServerOpts { host : "0.0.0.0".to_string(), port : 8000};
+        let mut server = Server::new(opts, 5);
+        let server_clone = Arc::clone(&server);
+        let another_clone = Arc::clone(&server);
+        let another_req_handler : Box<dyn Fn(Box<dyn Any + Send>) -> Box<dyn Any + Send> + Send> = Box::new(move |val| {
+            let boxed_value = Box::new(Sample{id : 1 as u32, name: "raja".to_string()});
+           // let val = server_clone.lock().unwrap().doSomething();
+            //println!("{}", val);
+            boxed_value
+        });
+
+        let string_handler : Box<dyn Fn(Box<dyn Any + Send>) -> Box<dyn Any + Send> + Send> = Box::new( move |val| {
+            let boxed_value = Box::new("welcome home".to_string());
+            //println!("{}", val);
+            boxed_value
+        });
+        let m_store_clone = Arc::clone(&m_store);
+        let get_sample_handler : Box<dyn Fn(Box <dyn Any + Send>) -> Box<dyn Any + Send> + Send> = Box::new(move |val| {
+            let request = val.downcast_ref::<Request>();
+            match request {
+                Some(req) => {
+                   let params:Vec<&str> =  req.path.split('/').collect();
+                   let param = params.get(params.len() - 1);
+                   match param {
+                        Some(key) => {
+                            println!("key is : {:#?}", key);
+                            let found = m_store_clone.lock().unwrap().get(key.to_string());
+                            match found {
+                                Some(val) => {
+                                    Box::new(val)
+                                }
+                                None => {
+                                    let c_error = CustomError{msg: "error".to_string()};
+                                    Box::new(c_error)
+                                }
+                            }
+                        }
+                        None => {
+                            let c_error = CustomError{msg: "error".to_string()};
+                            Box::new(c_error)
+                        }
+                   }
+                   
+                }
+                None => {
+                    let c_error = CustomError{msg: "error".to_string()};
+                    Box::new(c_error)
                 }
             }
-            
         });
-        let co = Controller::custom_controller(format!("/string"), "GET".to_string(), req_handler, handler);
+        let m_store_clone = Arc::clone(&m_store);
+        let get_all_samples_handler : Box<dyn Fn(Box<dyn Any + Send>) -> Box<dyn Any + Send> + Send> = Box::new(move |val| {
+            let samples = m_store_clone.lock().unwrap().getAll();
+            Box::new(samples)
+        });
+
         
-        let another_req_handler : Box<dyn Fn() -> Result<Box<dyn Any + Send>, ControllerError> + Send> = Box::new(|| {
-            let boxed_value = Box::new(Sample{id : 1, name: "raja".to_string()});
-            Ok(boxed_value as Box<dyn Any + Send>)
-        });
-        let another_handler:Box<dyn Fn(Arc<Mutex<TcpStream>>, Arc<Mutex<Box<dyn Any + Send>>>) + Send> = Box::new(move |arc_stream, result| {
-            println!("controller works , {}", 5);
-            let mut stream = arc_stream.lock().unwrap();
-            let res = result.lock().unwrap();
-            let res_option = res.downcast_ref::<Sample>();
-            match res_option {
-                Some(res_obj) => {
-                    let res_str = serde_json::to_string(res_obj).unwrap();
-                    let mut headers = HashMap::new();
-                    headers.insert("Content-Type".to_string(), "application/json".to_string());
-                    let response = Response::new("HTTP/1.1".to_string(), 200, "OK".to_string(), Some(res_str), headers);
-                    let response_str = response_string(&response);
-                    match response_str {
-                        Ok(str) => {
-                            stream.write(str.as_bytes()).unwrap();
-                            stream.flush().unwrap();
-                        }, 
-                        Err(e) => {
-                            println!("error {:#?}", e)
-                    }
-            }
-                },
-                None => println!("no value to retrieve")
-            }
-            
-            
-        });
-        let controller = Controller::custom_controller(format!("/custom"), "GET".to_string(), another_req_handler, another_handler);
-        
-        let post_req_handler : Box<dyn Fn(controller::boxedAnyType) -> Result<Box<dyn Any + Send>, ControllerError> + Send> = Box::new(|val| {
+        let m_store_clone = Arc::clone(&m_store);
+        let post_req_handler : Box<dyn Fn(Box<dyn Any + Send>) -> Box<dyn Any + Send> + Send> = Box::new(move |val| {
             let req = val.downcast_ref::<Request>();
-            println!("here");
             if let Some(request) =  req {
-                println!("right here");
-                println!("request is {:#?}", request);
                 let body = &request.body;
-                println!("called from post_req_handler , {:#?}", body.to_string());
                 let json_body = serde_json::from_str::<Sample>(body);
                 
                 if let Ok(value) = json_body {
-                    let boxed_value = Box::new(value);
-                    Ok(boxed_value as Box<dyn Any + Send>)    
+                    let another_valued = value.clone();
+                    let second_valued = value.clone();
+                    println!("value :{:#?}", another_valued);
+                    if let Some(val) = m_store_clone.lock().unwrap().add(value.name, second_valued) {
+                        println!("{:#?}", val);
+                        let boxed_value = Box::new(val);  
+                        boxed_value 
+                    } else {
+                        Box::new(CustomError{msg: "error in post controller".to_string()})
+                    }
                 } else if let Err(e) = json_body {
                     println!("error parsing the body : {:#?}", e);
-                    Err(ControllerError {  })
+                    let c_error = CustomError{msg: e.to_string()};
+                    Box::new(c_error)
                 } else {
-                    Err(ControllerError{})
+                    let c_error = CustomError{msg: "error".to_string()};
+                    Box::new(c_error)    
                 }
-                
             } else {
-                Err(ControllerError {  })
+                let c_error = CustomError{msg: "error".to_string()};
+                Box::new(c_error)
             }
-            
         });
-        let post_handler:Box<dyn Fn(Arc<Mutex<TcpStream>>, Arc<Mutex<Box<dyn Any + Send>>>) + Send> = Box::new(move |arc_stream, result| {
-            println!("controller works , {}", 5);
-            let mut stream = arc_stream.lock().unwrap();
-            let res = result.lock().unwrap();
-            let res_option = res.downcast_ref::<Sample>();
-            match res_option {
-                Some(res_obj) => {
-                    let res_str = serde_json::to_string(res_obj).unwrap();
-                    let mut headers = HashMap::new();
-                    headers.insert("Content-Type".to_string(), "application/json".to_string());
-                    let response = Response::new("HTTP/1.1".to_string(), 200, "OK".to_string(), Some(res_str), headers);
-                    let response_str = response_string(&response);
-                    match response_str {
-                        Ok(str) => {
-                            stream.write(str.as_bytes()).unwrap();
-                            stream.flush().unwrap();
-                        }, 
-                        Err(e) => {
-                            println!("error {:#?}", e)
-                    }
-            }
-                },
-                None => println!("no value to retrieve")
-            }
-            
-            
-        });
-        let post_controller = Controller::custom_post_controller(format!("/post"), "POST".to_string(), post_req_handler, post_handler);
         
 
-
-        controllers.push(co);
         
-        controllers.push(controller);
-        controllers.push(post_controller);
-        let router = Router::init(controllers);
-    //let listener = TcpListener::bind("0.0.0.0:8000");
-    let t_pool = ThreadPool::new(5);
-    let mut transport = TcpTransport::new("0.0.0.0".to_string(), 8000 as i32);
-    let ln = transport.listen(t_pool, router); 
-    match ln {
-        Ok(listener) => {
-            listener.start();
-        }, 
-        Err(e) => {
-            println!("error {:?}", e);
+
+        let mut router = Router::init();
+        router.add::<Sample, CustomError>("/custom".to_string(), "GET".to_string(), another_req_handler);
+        router.add::<String, CustomError>("/home".to_string(), "GET".to_string(), string_handler);
+        router.add::<Sample, CustomError>("/post".to_string(), "POST".to_string(), post_req_handler);
+        router.add::<Sample, CustomError>("/sample".to_string(), "GET".to_string(), get_sample_handler);
+        router.add::<Vec<Sample>, CustomError>("/all".to_string(), "GET".to_string(), get_all_samples_handler);
+        
+        let result = server.lock().unwrap().start(router);
+        if let Err(err) = result  {
+            println!("error : {}", err.error)
         }
-    }
-    // match(ln) {
+    // match(ln) {.
     //     Ok(ln) => { 
     //         for stream in ln.incoming() {
     //             if let Ok(mut s) = stream {
@@ -201,59 +219,59 @@ fn main() {
 // } 
 
 
-fn handle_stream(mut stream: TcpStream) {
-    print!("connection from : {:?}\n", stream);
-    let mut buff = [0;1024];
-    let value = stream.read(&mut buff).unwrap();
-    print!("{:?} bytes read from \n", value);
-    let request = parse(&String::from_utf8_lossy(&buff[..value]));
+// fn handle_stream(mut stream: TcpStream) {
+//     print!("connection from : {:?}\n", stream);
+//     let mut buff = [0;1024];
+//     let value = stream.read(&mut buff).unwrap();
+//     print!("{:?} bytes read from \n", value);
+//     let request = parse(&String::from_utf8_lossy(&buff[..value]));
 
-    let get = b"GET / HTTP/1.1\r\n";
-    let post = b"POST /hello HTTP/1.1\r\n";
-    print!("request : \t{:?}\n", request);
-    if request.method == "GET" && request.path == "/sleep" {
-        let mut headers = HashMap::new();
-        headers.insert("Content-Type".to_string(), "application/json".to_string());
-        let res = Response::new("HTTP/1.1".to_string(), 200 as u32 , "OK".to_string(), Some("hello from sleep".to_string()), headers);
-        let res_str = response_string(&res);
-        thread::sleep(Duration::from_secs(7));
-        stream.write(res_str.unwrap().as_bytes()).unwrap();
-        stream.flush().unwrap();
-    }
-    else if request.method == "GET" && request.path == "/" {
-        let mut headers = HashMap::new();
-        headers.insert("Content-Type".to_string(), "application/json".to_string());
-        let res = Response::new("HTTP/1.1".to_string(), 200 as u32 , "OK".to_string(), Some("hello".to_string()), headers);
-        let res_str = response_string(&res);                
-        stream.write(res_str.unwrap().as_bytes()).unwrap();
-        stream.flush().unwrap();
-    }else if request.method == "POST" {
-        let body = serde_json::from_str::<Sample>(&request.body);
-        println!("{:?}", body);
-            // }
-        match body {
-            Ok(sample) => {
-                let body_str = serde_json::to_string::<Sample>(&sample);
-                match body_str {
-                    Ok(str) => {
-                        let mut headers = HashMap::new();
-                        headers.insert("Content-Type".to_string(), "application/json".to_string());
-                        headers.insert("Content-Length".to_string(), str.len().to_string());
-                        let res = Response::new("HTTP/1.1".to_string(), 200 as u32 , "OK".to_string(), Some(str), headers);
-                        let res_str = response_string(&res);
-                        println!("response :{:#?}", res);
-                        stream.write(res_str.unwrap().as_bytes()).unwrap();
-                        stream.flush().unwrap();
-                    }
-                    Err(e) => println!("error : {}",e)
-                } 
+//     let get = b"GET / HTTP/1.1\r\n";
+//     let post = b"POST /hello HTTP/1.1\r\n";
+//     print!("request : \t{:?}\n", request);
+//     if request.method == "GET" && request.path == "/sleep" {
+//         let mut headers = HashMap::new();
+//         headers.insert("Content-Type".to_string(), "application/json".to_string());
+//         let res = Response::new("HTTP/1.1".to_string(), 200 as u32 , "OK".to_string(), Some("hello from sleep".to_string()), headers);
+//         let res_str = response_string(&res);
+//         thread::sleep(Duration::from_secs(7));
+//         stream.write(res_str.unwrap().as_bytes()).unwrap();
+//         stream.flush().unwrap();
+//     }
+//     else if request.method == "GET" && request.path == "/" {
+//         let mut headers = HashMap::new();
+//         headers.insert("Content-Type".to_string(), "application/json".to_string());
+//         let res = Response::new("HTTP/1.1".to_string(), 200 as u32 , "OK".to_string(), Some("hello".to_string()), headers);
+//         let res_str = response_string(&res);                
+//         stream.write(res_str.unwrap().as_bytes()).unwrap();
+//         stream.flush().unwrap();
+//     }else if request.method == "POST" {
+//         let body = serde_json::from_str::<Sample>(&request.body);
+//         println!("{:?}", body);
+//             // }
+//         match body {
+//             Ok(sample) => {
+//                 let body_str = serde_json::to_string::<Sample>(&sample);
+//                 match body_str {
+//                     Ok(str) => {
+//                         let mut headers = HashMap::new();
+//                         headers.insert("Content-Type".to_string(), "application/json".to_string());
+//                         headers.insert("Content-Length".to_string(), str.len().to_string());
+//                         let res = Response::new("HTTP/1.1".to_string(), 200 as u32 , "OK".to_string(), Some(str), headers);
+//                         let res_str = response_string(&res);
+//                         println!("response :{:#?}", res);
+//                         stream.write(res_str.unwrap().as_bytes()).unwrap();
+//                         stream.flush().unwrap();
+//                     }
+//                     Err(e) => println!("error : {}",e)
+//                 } 
                 
-            }       
-            Err(e) => println!("err {}", e)
-        }
-    } 
-    else { 
-        print!("invalid request")
-    }
+//             }       
+//             Err(e) => println!("err {}", e)
+//         }
+//     } 
+//     else { 
+//         print!("invalid request")
+//     }
     
-}
+// }

@@ -1,6 +1,6 @@
 use std::{borrow::{Borrow, BorrowMut}, cell::RefCell, io::{Error, Write}, net::{TcpListener, TcpStream}, rc::Rc, sync::{Arc, Mutex}};
 
-use crate::{middlewares::controller::{self, ControllerResult, IntController, StringController}, parser::http::parse, pool::thread::ThreadPool};
+use crate::{middlewares::controller::{self, ControllerResult}, parser::http::parse, pool::thread::ThreadPool};
 use crate::middlewares::routing::Router;
 use std::io::Read;
 
@@ -13,7 +13,7 @@ pub struct TcpTransport {
 
 #[derive(Debug)]
 pub struct SockError { 
-    msg : String
+    pub msg : String
 }
 
 impl TcpTransport { 
@@ -57,7 +57,7 @@ impl Listener {
     pub fn start(&self) {
         
         for stream in self.ln.incoming() {
-            if let Ok(mut s) = stream {
+            if let Ok(mut s) = stream { 
                 self.handle_stream( s);
             } else if let Err(e) = stream {
                 print!("error occured  : {:?}", e)
@@ -65,10 +65,8 @@ impl Listener {
         }
     }
     pub fn handle_stream(&self, mut stream : TcpStream) {
-        print!("connection from : {:?}\n", stream);
         let mut buff = [0;1024];
         let value = stream.read(&mut buff).unwrap();
-        print!("{:?} bytes read from \n", value);
         let request = parse(&String::from_utf8_lossy(&buff[..value]));
         //let request_clone = Arc::new(Mutex::new(Box::new(request)));
 
@@ -82,122 +80,17 @@ impl Listener {
                 Ok(routes) => {
             //let tcp_stream_clone = tcpStream.clone();
                     for controller in &routes.routes {
-                        match controller {
-                            controller::Controller::StringController(co) =>  {
-                                if request.path == co.path && request.method == co.method {
-                                    let handler_func = co.handler.clone();
-                                    //let req_handler_clone: Arc<Mutex<Box<dyn FnOnce() -> Result<String, controller::ControllerError> + Send>>> = Arc::clone(&co.req_handler);
-                                    let req_handler_clone: Arc<Mutex<Box<dyn Fn() -> Result<ControllerResult, controller::ControllerError> + Send + 'static>>> = Arc::clone(&co.req_handler);
-                                    let handler = req_handler_clone.lock().unwrap();
-                                    let result = handler();
-                                    let handler_f = handler_func.lock().unwrap();
-                                    match result {
-                                        Ok(res) =>  {
-                                            match res {
-                                                ControllerResult::StringResult(result) => handler_f(tcpStream.clone(), Arc::new(Mutex::new(result))),
-                                                ControllerResult::IntResult(_) => todo!(),
-                                                ControllerResult::AnyResult(_) => todo!(),
-                                            }
-                                            
-                                        },
-                                        Err(e) => println!("error : {:#?}", e)
-                                    }
-                                    
-
-                                    
-                                    //let stream = tcp_stream_clone.lock().unwrap();
-                                    
-                                    
-                                }
-                            },
-                            controller::Controller::IntController(co) => {
-                                if request.path == co.path && request.method == co.method {
-                                    let handler_func = co.handler.clone();
-                                    //let req_handler_clone: Arc<Mutex<Box<dyn FnOnce() -> Result<String, controller::ControllerError> + Send>>> = Arc::clone(&co.req_handler);
-                                    let req_handler_clone: Arc<Mutex<Box<dyn Fn() -> Result<ControllerResult, controller::ControllerError> + Send + 'static>>> = Arc::clone(&co.req_handler);
-                                    let handler = req_handler_clone.lock().unwrap();
-                                    let result = handler();
-                                    let handler_f = handler_func.lock().unwrap();
-                                    match result {
-                                        Ok(res) =>  {
-                                            match res {
-                                                ControllerResult::StringResult(_) => todo!(),
-                                                ControllerResult::IntResult(result) => handler_f(tcpStream.clone(), Arc::new(Mutex::new(result))),
-                                                ControllerResult::AnyResult(_) => todo!(),
-                                            }
-                                            
-                                        },
-                                        Err(e) => println!("error : {:#?}", e)
-                                    }
-                                    
-
-                                    
-                                    //let stream = tcp_stream_clone.lock().unwrap();
-                                    
-                                    
-                                }
-                            },
-                            controller::Controller::CustomController(co) => {
-                                if request.path == co.path && request.method == co.method {
-                                    let handler_func = co.handler.clone();
-                                    //let req_handler_clone: Arc<Mutex<Box<dyn FnOnce() -> Result<String, controller::ControllerError> + Send>>> = Arc::clone(&co.req_handler);
-                                    let req_handler_clone: Arc<Mutex<Box<dyn Fn() -> Result<ControllerResult, controller::ControllerError> + Send + 'static>>> = Arc::clone(&co.req_handler);
-                                    let handler = req_handler_clone.lock().unwrap();
-                                    let result = handler();
-                                    let handler_f = handler_func.lock().unwrap();
-                                    match result {
-                                        Ok(cResult) =>  {
-                                            match cResult {
-                                                ControllerResult::StringResult(res) => println!(""),
-                                                ControllerResult::IntResult(res) => println!(""),
-                                                ControllerResult::AnyResult(res) => {
-                                                    handler_f(tcpStream.clone(), Arc::new(Mutex::new(res)));
-                                                }
-                                            }
-                                            //handler_f(tcpStream.clone(), Arc::new(Mutex::new(res)))
-                                        },
-                                        Err(e) => println!("error : {:#?}", e)
-                                    }
-                                    
-
-                                    
-                                    //let stream = tcp_stream_clone.lock().unwrap();
-                                    
-                                    
-                                }
-                            },
-                            controller::Controller::CustomPostController(co) => {
-                                if request.path == co.path && request.method == co.method {
-                                    let handler_func = co.handler.clone();
-                                    //let req_handler_clone: Arc<Mutex<Box<dyn FnOnce() -> Result<String, controller::ControllerError> + Send>>> = Arc::clone(&co.req_handler);
-                                    let req_handler_clone: Arc<Mutex<Box<dyn Fn(controller::boxedAnyType) -> Result<ControllerResult, controller::ControllerError> + Send + 'static>>> = Arc::clone(&co.req_handler);
-                                    let handler = req_handler_clone.lock().unwrap();
-                                    println!("cloined req : {:#?} " , request.clone());
-                                    let result = handler(Box::new(request.clone()));
-                                    let handler_f = handler_func.lock().unwrap();
-                                    match result {
-                                        Ok(cResult) =>  {
-                                            match cResult {
-                                                ControllerResult::StringResult(res) => println!(""),
-                                                ControllerResult::IntResult(res) => println!(""),
-                                                ControllerResult::AnyResult(res) => {
-                                                    handler_f(tcpStream.clone(), Arc::new(Mutex::new(res)));
-                                                }
-                                            }
-                                            //handler_f(tcpStream.clone(), Arc::new(Mutex::new(res)))
-                                        },
-                                        Err(e) => println!("error : {:#?}", e)
-                                    }
-                                    
-
-                                    
-                                    //let stream = tcp_stream_clone.lock().unwrap();
-                                    
-                                    
-                                }
-                            }
+                        if request.path == controller.path && request.method == controller.method {
+                            let req_handler = controller.req_handler.lock().unwrap();
+                            let result = req_handler(Box::new(request.clone()));
+                            let handler_func = controller.handler.lock().unwrap();
+                            handler_func(tcpStream.clone(),  Arc::new(Mutex::new(result)));
+                        } else if request.path.starts_with(&controller.path) && request.method == controller.method {
+                            let req_handler = controller.req_handler.lock().unwrap();
+                            let result = req_handler(Box::new(request.clone()));
+                            let handler_func = controller.handler.lock().unwrap();
+                            handler_func(tcpStream.clone(),  Arc::new(Mutex::new(result)));
                         }
-                        
                     }
                 },
                 Err(e) => println!("error at router : {:#?}", e)
